@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const PROXY_SECRET = process.env.PROXY_SECRET;
 
-app.get("/", (_req, res) => res.send("ok"));
+app.get("/", (_req, res) => res.send("Hello"));
 
 app.get("/recording", async (req, res) => {
   const { callId, token } = req.query;
