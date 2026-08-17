@@ -11,22 +11,40 @@ const PORT = process.env.PORT || 3000;
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const PROXY_SECRET = process.env.PROXY_SECRET;
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
-
-cloudinary.config({
-  cloud_name: requireEnv("CLOUDINARY_CLOUD_NAME"),
-  api_key: requireEnv("CLOUDINARY_API_KEY"),
-  api_secret: requireEnv("CLOUDINARY_API_SECRET"),
-  secure: true,
-});
-
 const CLOUDINARY_UPLOAD_PRESET = process.env.CLOUDINARY_UPLOAD_PRESET;
+
+let cloudinaryReady = false;
+
+// Configured lazily: on serverless, throwing at module load kills the whole
+// function, so a missing credential should only fail the route that needs it.
+function configureCloudinary(): void {
+  if (cloudinaryReady) return;
+
+  const cloud_name = process.env.CLOUDINARY_CLOUD_NAME;
+  const api_key = process.env.CLOUDINARY_API_KEY;
+  const api_secret = process.env.CLOUDINARY_API_SECRET;
+
+  const missing = [
+    ["CLOUDINARY_CLOUD_NAME", cloud_name],
+    ["CLOUDINARY_API_KEY", api_key],
+    ["CLOUDINARY_API_SECRET", api_secret],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length) {
+    throw new Error(`Missing Cloudinary environment variables: ${missing.join(", ")}`);
+  }
+
+  cloudinary.config({
+    cloud_name: cloud_name as string,
+    api_key: api_key as string,
+    api_secret: api_secret as string,
+    secure: true,
+  });
+
+  cloudinaryReady = true;
+}
 
 app.get("/", (_req, res) => res.send("Hello"));
 
@@ -42,6 +60,8 @@ app.get("/recording", async (req, res) => {
   }
 
   try {
+    configureCloudinary();
+
     console.log(`https://api.vapi.ai/call/${callId}`);
 
     const call = await axios.get(`https://api.vapi.ai/call/${callId}`, {
