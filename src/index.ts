@@ -6,8 +6,54 @@ import { logTranscriptToGhl } from "./transcript.js";
 
 dotenv.config();
 
+// GHL builds the body by interpolating {{transcript}} into a JSON template, so
+// transcripts arrive with raw newlines inside a string literal — illegal JSON,
+// which made express.json() reject the request before the route ran. Escape
+// control characters found inside strings only; newlines between tokens are
+// legal and must be left alone.
+function parseJsonLoose(raw: string): unknown {
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // fall through and repair
+  }
+
+  let out = "";
+  let inString = false;
+  let escaped = false;
+
+  for (const char of raw) {
+    const code = char.charCodeAt(0);
+    if (escaped) {
+      out += char;
+      escaped = false;
+    } else if (code === 92) {
+      out += char;
+      escaped = true;
+    } else if (char === '"') {
+      inString = !inString;
+      out += char;
+    } else if (inString && code < 0x20) {
+      out += JSON.stringify(char).slice(1, -1);
+    } else {
+      out += char;
+    }
+  }
+
+  return JSON.parse(out);
+}
+
 const app = express();
-app.use(express.json());
+app.use(express.text({ type: () => true, limit: "10mb" }));
+app.use((req, res, next) => {
+  try {
+    req.body = typeof req.body === "string" ? parseJsonLoose(req.body) : {};
+    next();
+  } catch {
+    res.status(400).json({ error: "Malformed request body" });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
