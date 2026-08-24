@@ -7,6 +7,7 @@ import { logTranscriptToGhl } from "./transcript.js";
 dotenv.config();
 
 const app = express();
+app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
@@ -34,7 +35,9 @@ function configureCloudinary(): void {
     .map(([name]) => name);
 
   if (missing.length) {
-    throw new Error(`Missing Cloudinary environment variables: ${missing.join(", ")}`);
+    throw new Error(
+      `Missing Cloudinary environment variables: ${missing.join(", ")}`
+    );
   }
 
   cloudinary.config({
@@ -81,23 +84,29 @@ app.post("/recording", async (req, res) => {
     const file = await axios.get(recordingUrl, { responseType: "arraybuffer" });
     const audioBuffer = Buffer.from(file.data);
 
-    const cloudinaryResult = await new Promise<UploadApiResponse>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          resource_type: "video",
-          ...(CLOUDINARY_UPLOAD_PRESET ? { upload_preset: CLOUDINARY_UPLOAD_PRESET } : {}),
-        },
-        (error, result) =>
-          error || !result
-            ? reject(error ?? new Error("Cloudinary upload returned no result"))
-            : resolve(result)
-      );
-      stream.end(audioBuffer);
-    });
+    const cloudinaryResult = await new Promise<UploadApiResponse>(
+      (resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            resource_type: "video",
+            ...(CLOUDINARY_UPLOAD_PRESET
+              ? { upload_preset: CLOUDINARY_UPLOAD_PRESET }
+              : {}),
+          },
+          (error, result) =>
+            error || !result
+              ? reject(
+                  error ?? new Error("Cloudinary upload returned no result")
+                )
+              : resolve(result)
+        );
+        stream.end(audioBuffer);
+      }
+    );
 
-    try{ 
+    try {
       await logTranscriptToGhl(req.body, cloudinaryResult.secure_url);
-    } catch(error){ 
+    } catch (error) {
       console.error("Error logging transcript to GHL:", error);
     }
 
@@ -109,8 +118,5 @@ app.post("/recording", async (req, res) => {
     return res.status(status).send("Could not fetch recording");
   }
 });
-
-
-
 
 app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
