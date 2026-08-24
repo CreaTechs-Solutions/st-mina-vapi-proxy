@@ -2,6 +2,7 @@ import express from "express";
 import axios from "axios";
 import dotenv from "dotenv";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
+import { logTranscriptToGhl } from "./transcript.js";
 
 dotenv.config();
 
@@ -48,7 +49,7 @@ function configureCloudinary(): void {
 
 app.get("/", (_req, res) => res.send("Hello"));
 
-app.get("/recording", async (req, res) => {
+app.post("/recording", async (req, res) => {
   const { callId, token } = req.query;
 
   if (token !== PROXY_SECRET) {
@@ -94,6 +95,12 @@ app.get("/recording", async (req, res) => {
       stream.end(audioBuffer);
     });
 
+    try{ 
+      await logTranscriptToGhl(req.body, cloudinaryResult.secure_url);
+    } catch(error){ 
+      console.error("Error logging transcript to GHL:", error);
+    }
+
     return res.json({ recordingUrl: cloudinaryResult.secure_url });
   } catch (err) {
     const status = axios.isAxiosError(err) ? err.response?.status ?? 500 : 500;
@@ -102,5 +109,8 @@ app.get("/recording", async (req, res) => {
     return res.status(status).send("Could not fetch recording");
   }
 });
+
+
+
 
 app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
