@@ -1,10 +1,29 @@
 import axios from "axios";
 
-const GHL_BASE = "https://services.leadconnectorhq.com";
+const ghlBaseUrl = "https://services.leadconnectorhq.com";
 
 interface TranscriptLogInput {
   transcript: string;
   phone: string;
+}
+
+// GHL interpolates {{transcript}} into a JSON template, so depending on how the
+// workflow escapes the value we receive either real newlines or the literal
+// two-character sequence \n. GHL's conversation view renders the latter as-is,
+// which is why a logged call reads "...today?\nUser: Hello." on a single line.
+// Turn the escaped forms back into real breaks and strip the template's own
+// padding so every shape of input produces one turn per line. Turns are then
+// separated by a blank line, and the whole transcript opens with one, so the
+// conversation view doesn't run the first turn up against the message header.
+function normalizeTranscript(transcript: string): string {
+  const turns = transcript
+    .replace(/\\r\\n|\\n|\\r/g, "\n")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return turns.length ? `\n${turns.join("\n\n")}` : "";
 }
 
 export async function logTranscriptToGhl(
@@ -28,7 +47,9 @@ export async function logTranscriptToGhl(
     return;
   }
 
-  if (!transcript) {
+  const normalizedTranscript = normalizeTranscript(transcript ?? "");
+
+  if (!normalizedTranscript) {
     console.error("logTranscriptToGhl: missing transcript");
     return;
   }
@@ -46,7 +67,7 @@ export async function logTranscriptToGhl(
 
   // Find the caller's contact, creating it if this number is new to the CRM.
   const upsert = await axios.post(
-    `${GHL_BASE}/contacts/upsert`,
+    `${ghlBaseUrl}/contacts/upsert`,
     { locationId: ghlLocationId, phone: normalizedPhone },
     { headers: ghlHeaders, timeout: 20000 }
   );
@@ -57,7 +78,7 @@ export async function logTranscriptToGhl(
     return;
   }
 
-  const search = await axios.get(`${GHL_BASE}/conversations/search`, {
+  const search = await axios.get(`${ghlBaseUrl}/conversations/search`, {
     headers: ghlHeaders,
     params: { locationId: ghlLocationId, contactId, limit: 20 },
     timeout: 20000,
@@ -69,7 +90,7 @@ export async function logTranscriptToGhl(
 
   if (!conversationId) {
     const created = await axios.post(
-      `${GHL_BASE}/conversations/`,
+      `${ghlBaseUrl}/conversations/`,
       { locationId: ghlLocationId, contactId },
       { headers: ghlHeaders, timeout: 20000 }
     );
@@ -82,13 +103,13 @@ export async function logTranscriptToGhl(
   }
 
   await axios.post(
-    `${GHL_BASE}/conversations/messages/inbound`,
+    `${ghlBaseUrl}/conversations/messages/inbound`,
     {
       type: "SMS",
       conversationId,
       contactId,
       direction: "inbound",
-      message: transcript,
+      message: normalizedTranscript,
       attachments: [recordingUrl],
     },
     { headers: ghlHeaders, timeout: 20000 }
